@@ -5,5 +5,5 @@ class Split:
         self.name = name
         db.execute("INSERT INTO splits (name) VALUES (?)",(self.name,))
 
-    def remove(self):
+    def remove_split(self):
         db.execute("DELETE FROM splits WHERE name = ?",(self.name,))
