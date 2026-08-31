@@ -1,3 +1,6 @@
+from database import *
+
+
 class Split:
     def __init__(self, db, name):
         self.db = db

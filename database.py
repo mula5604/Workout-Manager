@@ -13,9 +13,7 @@ class Database:
 
     def get_id_or_raise(self, table, column, value, error_message):
         result = self.execute(
-            f"SELECT id FROM {table} WHERE {column} = ?",
-            (value,)
-        ).fetchone()
+            f"SELECT id FROM {table} WHERE {column} = ?",(value,)).fetchone()
 
         if result:
             return result[0]

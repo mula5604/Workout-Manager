@@ -9,9 +9,16 @@ def test_execute_tables():
 
 
 def test_execute_insert():
-    #tests in regular queries work
+    #tests if regular queries work
     db = Database()
     db.execute(query="DELETE FROM splits;")
-    insert_q = db.execute(query="INSERT INTO splits (name) VALUES (?)",params=("upper",))
+    db.execute(query="INSERT INTO splits (name) VALUES (?)",params=("upper",))
     result = db.execute(query="SELECT name from splits")
     assert "upper" in result.fetchall()[0]
+
+def test_get_id_or_raise():
+    db = Database()
+    db.execute(query="DELETE FROM splits;")
+    split_id = db.insert("INSERT INTO splits (name) VALUES (?)", ("upper",))
+    result = db.get_id_or_raise("splits", "name", "upper", "it aint there")
+    assert result == split_id
