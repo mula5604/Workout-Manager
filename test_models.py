@@ -15,15 +15,36 @@ def test_split_save():
     test_split.save()
     assert test_db.fetchall("SELECT name FROM splits") == [("upper",)]
 
-def test_get_by_name():
+def test_get_by_name_splits():
     #tests if getting by name works
     temp = Split.get_by_name(test_db,"upper")
     assert temp.name == "upper"
 
-def test_get_workout():
+def test_get_workout_splits():
+    #NEED TO MAKE WORKOUTS TO WORK
     temp = test_split.get_workouts()
     assert temp != 1
 
-def test_delete():
+def test_delete_splits():
     test_split.delete()
     assert test_split.name not in test_db.fetchall("SELECT name FROM splits")
+
+# tests for excercise table
+test_excercise = Exercise(test_db,"bench press")
+
+def test_excercise_save():
+    test_db.execute(query="DELETE FROM exercises;")
+    test_excercise.save()
+    assert test_db.fetchall("select name from exercises;") == [("bench press",)]
+
+def test_get_by_name_excercises():
+    temp = Exercise.get_by_name(test_db,"bench press")
+    assert temp.name == "bench press"
+
+def test_get_logs_excercises():
+    #need to make excercise logs first
+    pass
+
+def test_delete_excercises():
+    test_excercise.delete()
+    assert test_excercise.name not in test_db.fetchall("select name from exercises;")
