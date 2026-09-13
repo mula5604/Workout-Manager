@@ -1,8 +1,8 @@
-# NEED TO MAKE BETTER TEST DB
-# NEED TO MAKE TESTS HERE LESS REPETETIVE
-# THIS IS A TO DO
-#
-#
+# tests all functions for table the functions from models
+# tests if the models save, retrieve, and delete data correctly
+
+# TODO:
+# reduce repetitive test setup
 
 
 
