@@ -7,7 +7,7 @@
 
 
 import pytest
-from models import *
+from Workout_Manager.SRC.models import *
 
 
 # db

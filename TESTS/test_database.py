@@ -1,5 +1,5 @@
 import pytest
-from database_wrappers import *
+from Workout_Manager.SRC.database_wrappers import *
 
 def test_execute_tables():
     #tests if the tables are being created

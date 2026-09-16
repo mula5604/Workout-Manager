@@ -1,4 +1,4 @@
-from database_wrappers import *
+from Workout_Manager.SRC.database_wrappers import *
 
 
 class Split:

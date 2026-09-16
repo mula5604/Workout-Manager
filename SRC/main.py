@@ -1,5 +1,5 @@
-import models as m
-import database_wrappers as dw
+import Workout_Manager.SRC.models as m
+import Workout_Manager.SRC.database_wrappers as dw
 from datetime import date
 import sqlite3
 
