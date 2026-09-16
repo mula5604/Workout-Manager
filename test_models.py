@@ -158,18 +158,12 @@ def test_get_exercises_workout():
     test_exercise = Exercise(test_db, "bench press")
     test_exercise.save()
 
-    temp_workout_exercise = WorkoutExercise(
-        test_db,
-        test_workout.id,
-        test_exercise.id,
-        3,
-        8
-    )
+    temp_workout_exercise = WorkoutExercise(test_db,test_workout.id,test_exercise.id,3)
     temp_workout_exercise.save()
 
     get_exercises = test_workout.get_exercises()
 
-    assert get_exercises == [(temp_workout_exercise.id, test_exercise.id, 3, 8)]
+    assert get_exercises == [(temp_workout_exercise.id, test_exercise.id, 3)]
 
 
 def test_get_logs_workout():
@@ -228,7 +222,7 @@ def test_workout_exercise_save():
     test_workout_exercise = WorkoutExercise(test_db,test_workout.id,test_exercise.id,3)
     test_workout_exercise.save()
 
-    assert test_db.fetchall("SELECT exercise_id, sets, reps FROM workout_exercises") == [(test_exercise.id, 3)]
+    assert test_db.fetchall("SELECT exercise_id, sets FROM workout_exercises") == [(test_exercise.id, 3)]
 
 
 def test_get_by_workout_workout_exercise():
