@@ -43,7 +43,6 @@ CREATE TABLE IF NOT EXISTS workout_exercises (
     workout_id INTEGER NOT NULL,
     exercise_id INTEGER NOT NULL,
     sets INTEGER NOT NULL,
-    reps INTEGER NOT NULL,
 
     FOREIGN KEY (workout_id)
         REFERENCES workouts(id)

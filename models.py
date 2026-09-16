@@ -77,16 +77,15 @@ class Workout:
         self.db.delete("DELETE FROM workouts WHERE id = ?", (self.id,))
 
 class WorkoutExercise:
-    def __init__(self, db, workout_id, exercise_id, sets, reps):
+    def __init__(self, db, workout_id, exercise_id, sets):
         self.db = db
         self.workout_id = workout_id
         self.exercise_id = exercise_id
         self.sets = sets
-        self.reps = reps
         self.id = None
 
     def save(self):
-        self.id = self.db.insert("INSERT INTO workout_exercises (workout_id, exercise_id, sets, reps) VALUES (?, ?, ?, ?)", (self.workout_id, self.exercise_id, self.sets, self.reps))
+        self.id = self.db.insert("INSERT INTO workout_exercises (workout_id, exercise_id, sets, reps) VALUES (?, ?, ?, ?)", (self.workout_id, self.exercise_id, self.sets))
         return self.id
 
     @classmethod

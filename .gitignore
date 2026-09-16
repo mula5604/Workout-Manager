@@ -4,6 +4,7 @@ workout_db.db-journal
 workout_db.sqbpro
 workout_tracker.db
 workout_db.sqbpro
+test_workout_tracker.db
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
