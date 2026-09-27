@@ -1,4 +1,4 @@
-# Workout_Manager
+# Workout-Manager
 
 Simple CLI workout tracker made with Python and SQLite.
 
