@@ -1,9 +1,16 @@
-# Workout-Manager
+# Workout Manager
 
-Simple CLI workout tracker made with Python and SQLite.
+A simple gui (kinda) workout manager project made with Python.
 
-## Run
+## How to Run
 
-Go into the `db` folder and run the database script.
+1. Download or clone the project.
+2. Open the project folder.
+3. Run `gui.py`.
 
-Then go back to the main folder and run the main script.
+## Requirements
+
+* Python 3
+* Tkinter
+* SQLite3
+* Also to go into DB folder and run the script
