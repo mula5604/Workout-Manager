@@ -1,396 +1,995 @@
+import time
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import date
 from database_wrappers import Database
-from models import (Split,Workout,Exercise,WorkoutExercise,WorkoutLog,ExerciseLog)
+from models import (Split, Workout, Exercise, WorkoutExercise, WorkoutLog, ExerciseLog)
+
+BG = "#d4d0c8"
+FIELD = "#ffffff"
+TEXT = "#000000"
+MUTED = "#404040"
+NAVY = "#000080"
+BTN_HOVER = "#e4e0d8"
+
+FONT = ("Tahoma", 9)
+FONT_BOLD = ("Tahoma", 9, "bold")
+FONT_TITLE = ("Tahoma", 14, "bold")
+FONT_SMALL = ("Tahoma", 8)
+
+
 class WorkoutManagerGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Workout Manager")
-        self.root.geometry("1000x600")
-        self.root.minsize(800, 500)
+        self.root.geometry("1100x720")
+        self.root.minsize(900, 600)
+        self.root.configure(bg=BG)
+
         self.db = Database()
+        self.ensure_reps_column()
+
         self.selected_split_id = None
         self.selected_workout_id = None
         self.selected_exercise_id = None
+
+        self.exercise_search = tk.StringVar()
+        self.exercise_search.trace_add("write", lambda *a: self.refresh_exercises())
+
         self.setup_style()
         self.create_gui()
         self.refresh_all()
+
+    def ensure_reps_column(self):
+        try:
+            columns = [row[1] for row in self.db.fetchall("PRAGMA table_info(workout_exercises)")]
+            if "reps" not in columns:
+                self.db.execute("ALTER TABLE workout_exercises ADD COLUMN reps INTEGER", ())
+        except Exception as e:
+            messagebox.showerror("Database Error", f"Could not add reps column:\n\n{e}")
+
     def setup_style(self):
         style = ttk.Style()
-        try: style.theme_use("clam")
-        except tk.TclError: pass
-        style.configure("Title.TLabel", font=("Arial", 20, "bold"))
-        style.configure("Section.TLabel", font=("Arial", 12, "bold"))
-        style.configure("TButton", padding=5)
-        style.configure("Treeview", rowheight=28)
-        style.configure("Treeview.Heading", font=("Arial", 10, "bold"))
+        try:
+            style.theme_use("classic")
+        except tk.TclError:
+            pass
+
+        self.root.option_add("*Font", FONT)
+        self.root.option_add("*TCombobox*Listbox.background", FIELD)
+        self.root.option_add("*TCombobox*Listbox.foreground", TEXT)
+        self.root.option_add("*TCombobox*Listbox.selectBackground", NAVY)
+        self.root.option_add("*TCombobox*Listbox.selectForeground", "white")
+
+        style.configure(".", background=BG, foreground=TEXT, font=FONT)
+        style.configure("TFrame", background=BG)
+        style.configure("Card.TFrame", background=BG)
+        style.configure("TLabelframe", background=BG, borderwidth=2, relief="groove")
+        style.configure("TLabelframe.Label", background=BG, foreground=TEXT, font=FONT_BOLD)
+        style.configure("TLabel", background=BG, foreground=TEXT)
+        style.configure("Card.TLabel", background=BG, foreground=TEXT)
+        style.configure("Title.TLabel", font=FONT_TITLE, foreground=TEXT)
+        style.configure("Subtitle.TLabel", foreground=MUTED)
+        style.configure("Muted.TLabel", background=BG, foreground=MUTED, font=FONT_SMALL)
+        style.configure("Header.TLabel", background=BG, foreground=TEXT, font=FONT_BOLD)
+
+        for name, font in (("TButton", FONT), ("Accent.TButton", FONT_BOLD),
+                           ("Success.TButton", FONT_BOLD)):
+            style.configure(name, background=BG, foreground=TEXT, padding=(10, 3),
+                            borderwidth=2, font=font)
+            style.map(name, background=[("active", BTN_HOVER)])
+        style.configure("Small.TButton", background=BG, foreground=TEXT, padding=(4, 1),
+                        borderwidth=2, font=FONT_SMALL)
+        style.map("Small.TButton", background=[("active", BTN_HOVER)])
+
+        style.configure("Treeview", background=FIELD, fieldbackground=FIELD,
+                        foreground=TEXT, rowheight=20, borderwidth=2, relief="sunken")
+        style.map("Treeview",
+                  background=[("selected", NAVY)],
+                  foreground=[("selected", "white")])
+        style.configure("Treeview.Heading", background=BG, foreground=TEXT,
+                        font=FONT_BOLD, relief="raised", borderwidth=2, padding=3)
+        style.map("Treeview.Heading", background=[("active", BTN_HOVER)])
+
+        style.configure("TEntry", fieldbackground=FIELD, foreground=TEXT,
+                        insertcolor=TEXT, padding=3, borderwidth=2, relief="sunken")
+        style.configure("TCombobox", fieldbackground=FIELD, background=BG,
+                        foreground=TEXT, arrowcolor=TEXT, padding=3, borderwidth=2)
+        style.map("TCombobox", fieldbackground=[("readonly", FIELD)],
+                  foreground=[("readonly", TEXT)])
+        style.configure("TSpinbox", fieldbackground=FIELD, foreground=TEXT,
+                        arrowcolor=TEXT, padding=3, borderwidth=2)
+
+        style.configure("Vertical.TScrollbar", background=BG, troughcolor="#e8e8e8",
+                        arrowcolor=TEXT, borderwidth=2, relief="raised")
+        style.map("Vertical.TScrollbar", background=[("active", BTN_HOVER)])
+
+    def make_card(self, parent, title, subtitle=None):
+        card = ttk.LabelFrame(parent, text=f" {title} ", padding=8)
+        if subtitle:
+            ttk.Label(card, text=subtitle, style="Muted.TLabel").pack(anchor="w", pady=(0, 4))
+        return card
+
+    def make_list(self, parent, on_select=None, on_double=None):
+        wrap = ttk.Frame(parent, style="Card.TFrame")
+        wrap.pack(fill="both", expand=True)
+        tree = ttk.Treeview(wrap, show="tree", selectmode="browse")
+        scroll = ttk.Scrollbar(wrap, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        if on_select:
+            tree.bind("<<TreeviewSelect>>", on_select)
+        if on_double:
+            tree.bind("<Double-1>", on_double)
+        return tree
+
+    def button_row(self, parent, buttons):
+        row = ttk.Frame(parent, style="Card.TFrame")
+        row.pack(fill="x", pady=(10, 0))
+        for text, command, style in buttons:
+            ttk.Button(row, text=text, command=command, style=style).pack(
+                side="left", fill="x", expand=True, padx=3)
+        return row
+
+    @staticmethod
+    def selected_id(tree):
+        sel = tree.selection()
+        return int(sel[0]) if sel else None
+
+    def make_modal(self, title, width, height):
+        win = tk.Toplevel(self.root)
+        win.title(title)
+        win.configure(bg=BG)
+        win.transient(self.root)
+        win.resizable(False, False)
+        self.root.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - width) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - height) // 3
+        win.geometry(f"{width}x{height}+{x}+{y}")
+        try:
+            win.wait_visibility()
+            win.grab_set()
+        except tk.TclError:
+            pass
+        win.bind("<Escape>", lambda e: win.destroy())
+        return win
+
     def create_gui(self):
-        title = ttk.Label(self.root, text="Workout Manager", style="Title.TLabel")
-        title.pack(pady=10)
-        main = ttk.Frame(self.root)
-        main.pack(fill="both", expand=True, padx=10, pady=5)
-        split_frame = ttk.LabelFrame(main,text="Splits",padding=8)
-        split_frame.grid(row=0,column=0,sticky="nsew",padx=5)
-        self.split_list = tk.Listbox(split_frame, height=15)
-        self.split_list.pack(fill="both", expand=True)
-        self.split_list.bind("<<ListboxSelect>>",self.on_split_selected)
-        split_buttons = ttk.Frame(split_frame)
-        split_buttons.pack(fill="x", pady=(8, 0))
-        ttk.Button(split_buttons,text="Add",command=self.add_split).pack(side="left", fill="x", expand=True, padx=2)
-        ttk.Button(split_buttons,text="Delete",command=self.delete_split).pack(side="left", fill="x", expand=True, padx=2)
-        workout_frame = ttk.LabelFrame(main,text="Workouts",padding=8)
-        workout_frame.grid(row=0,column=1,sticky="nsew",padx=5)
-        self.workout_list = tk.Listbox(workout_frame, height=15)
-        self.workout_list.pack(fill="both", expand=True)
-        self.workout_list.bind("<<ListboxSelect>>",self.on_workout_selected)
-        workout_buttons = ttk.Frame(workout_frame)
-        workout_buttons.pack(fill="x", pady=(8, 0))
-        ttk.Button(workout_buttons,text="Add",command=self.add_workout).pack(side="left", fill="x", expand=True, padx=2)
-        ttk.Button(workout_buttons,text="Delete",command=self.delete_workout).pack(side="left", fill="x", expand=True, padx=2)
-        exercise_frame = ttk.LabelFrame(main,text="Exercises",padding=8)
-        exercise_frame.grid(row=0,column=2,sticky="nsew",padx=5)
-        self.exercise_list = tk.Listbox(exercise_frame, height=15)
-        self.exercise_list.pack(fill="both", expand=True)
-        self.exercise_list.bind("<<ListboxSelect>>",self.on_exercise_selected)
-        exercise_buttons = ttk.Frame(exercise_frame)
-        exercise_buttons.pack(fill="x", pady=(8, 0))
-        ttk.Button(exercise_buttons,text="Add",command=self.add_exercise).pack(side="left", fill="x", expand=True, padx=2)
-        ttk.Button(exercise_buttons,text="Delete",command=self.delete_exercise).pack(side="left", fill="x", expand=True, padx=2)
-        details_frame = ttk.LabelFrame(self.root,text="Selected Workout",padding=10)
-        details_frame.pack(fill="both",expand=True,padx=15,pady=10)
-        self.details_label = ttk.Label(details_frame, text="Select a workout")
-        self.details_label.pack(anchor="w", pady=(0, 5))
-        self.workout_exercises = ttk.Treeview(details_frame,columns=("exercise", "sets"),show="headings",height=5)
-        self.workout_exercises.heading("exercise",text="Exercise")
-        self.workout_exercises.heading("sets",text="Sets")
-        self.workout_exercises.column("exercise",width=300)
-        self.workout_exercises.column("sets",width=100,anchor="center")
-        self.workout_exercises.pack(fill="both",expand=True)
-        bottom_buttons = ttk.Frame(details_frame)
-        bottom_buttons.pack(fill="x", pady=(8, 0))
-        ttk.Button(bottom_buttons,text="Add Exercise To Workout",command=self.add_exercise_to_workout).pack(side="left", padx=2)
-        ttk.Button(bottom_buttons,text="Remove Exercise",command=self.remove_exercise_from_workout).pack(side="left", padx=2)
-        ttk.Button(bottom_buttons,text="Start Workout",command=self.start_workout).pack(side="right", padx=2)
-        ttk.Button(bottom_buttons,text="History",command=self.show_history).pack(side="right", padx=2)
-        main.columnconfigure(0, weight=1)
-        main.columnconfigure(1, weight=1)
-        main.columnconfigure(2, weight=1)
+        header = tk.Frame(self.root, bg=NAVY)
+        header.pack(fill="x", padx=3, pady=3)
+        tk.Label(header, text="  Workout Manager", bg=NAVY, fg="white",
+                 font=FONT_TITLE, pady=6).pack(side="left")
+        tk.Label(header, text=date.today().strftime("%A, %d %B %Y") + "  ", bg=NAVY,
+                 fg="white", font=FONT).pack(side="right")
+
+        main = ttk.Frame(self.root, padding=(14, 6))
+        main.pack(fill="both", expand=True)
+        main.columnconfigure((0, 1, 2), weight=1, uniform="cols")
         main.rowconfigure(0, weight=1)
+
+        split_card = self.make_card(main, "Splits")
+        split_card.grid(row=0, column=0, sticky="nsew", padx=6)
+        self.split_list = self.make_list(split_card, self.on_split_selected)
+        self.button_row(split_card, [
+            ("+ Add", self.add_split, "Accent.TButton"),
+            ("Delete", self.delete_split, "TButton"),
+        ])
+
+        workout_card = self.make_card(main, "Workouts")
+        workout_card.grid(row=0, column=1, sticky="nsew", padx=6)
+        self.workout_list = self.make_list(workout_card, self.on_workout_selected)
+        self.button_row(workout_card, [
+            ("+ Add", self.add_workout, "Accent.TButton"),
+            ("Delete", self.delete_workout, "TButton"),
+        ])
+
+        exercise_card = self.make_card(main, "Exercise Library", "double-click to add")
+        exercise_card.grid(row=0, column=2, sticky="nsew", padx=6)
+        search = ttk.Entry(exercise_card, textvariable=self.exercise_search)
+        search.pack(fill="x", pady=(0, 8))
+        self.exercise_list = self.make_list(
+            exercise_card, self.on_exercise_selected,
+            on_double=lambda e: self.add_exercise_to_workout())
+        self.button_row(exercise_card, [
+            ("+ Add", self.add_exercise, "Accent.TButton"),
+            ("Delete", self.delete_exercise, "TButton"),
+        ])
+
+        details = self.make_card(self.root, "Selected Workout")
+        details.pack(fill="both", expand=True, padx=20, pady=(8, 16))
+
+        self.details_label = ttk.Label(details, text="Select a workout",
+                                       style="Muted.TLabel")
+        self.details_label.pack(anchor="w", pady=(0, 6))
+
+        tree_wrap = ttk.Frame(details, style="Card.TFrame")
+        tree_wrap.pack(fill="both", expand=True)
+        self.workout_exercises = ttk.Treeview(
+            tree_wrap, columns=("exercise", "sets", "reps"), show="headings",
+            height=5, selectmode="browse")
+        self.workout_exercises.heading("exercise", text="Exercise", anchor="w")
+        self.workout_exercises.heading("sets", text="Sets")
+        self.workout_exercises.heading("reps", text="Reps")
+        self.workout_exercises.column("exercise", width=400, anchor="w")
+        self.workout_exercises.column("sets", width=100, anchor="center")
+        self.workout_exercises.column("reps", width=100, anchor="center")
+        wscroll = ttk.Scrollbar(tree_wrap, orient="vertical",
+                                command=self.workout_exercises.yview)
+        self.workout_exercises.configure(yscrollcommand=wscroll.set)
+        self.workout_exercises.pack(side="left", fill="both", expand=True)
+        wscroll.pack(side="right", fill="y")
+
+        bottom = ttk.Frame(details, style="Card.TFrame")
+        bottom.pack(fill="x", pady=(10, 0))
+        ttk.Button(bottom, text="+ Add Exercise To Workout",
+                   command=self.add_exercise_to_workout).pack(side="left", padx=(0, 6))
+        ttk.Button(bottom, text="Remove Exercise",
+                   command=self.remove_exercise_from_workout).pack(side="left", padx=6)
+        ttk.Button(bottom, text="▶  Start Workout", style="Success.TButton",
+                   command=self.start_workout).pack(side="right", padx=(6, 0))
+        ttk.Button(bottom, text="History",
+                   command=self.show_history).pack(side="right", padx=6)
+
     def refresh_all(self):
-        self.refresh_splits(); self.refresh_exercises()
-    def refresh_splits(self):
-        self.split_list.delete(0, tk.END)
-        splits = self.db.fetchall("SELECT id, name FROM splits ORDER BY name")
-        for split_id, name in splits:
-            self.split_list.insert(tk.END, name)
+        self.refresh_splits()
+        self.refresh_exercises()
+
+    def refresh_splits(self, select_id=None):
+        self.split_list.delete(*self.split_list.get_children())
+
+        for split_id, name in self.db.fetchall("SELECT id,name FROM splits ORDER BY name"):
+            self.split_list.insert("", tk.END, iid=str(split_id), text="  " + name)
+
         self.selected_split_id = None
-        self.workout_list.delete(0, tk.END)
+        self.selected_workout_id = None
+        self.workout_list.delete(*self.workout_list.get_children())
+        self.clear_workout_details()
+
+        if select_id is not None and self.split_list.exists(str(select_id)):
+            self.selected_split_id = select_id
+            self.split_list.selection_set(str(select_id))
+            self.refresh_workouts()
+
+    def refresh_workouts(self, select_id=None):
+        self.workout_list.delete(*self.workout_list.get_children())
         self.selected_workout_id = None
         self.clear_workout_details()
-    def refresh_workouts(self):
-        self.workout_list.delete(0, tk.END)
+
         if self.selected_split_id is None:
             return
-        workouts = self.db.fetchall("""SELECT id, nameFROM workoutsWHERE split_id = ?ORDER BY name""",(self.selected_split_id,))
+
+        workouts = self.db.fetchall(
+            "SELECT id,name FROM workouts WHERE split_id = ? ORDER BY name",
+            (self.selected_split_id,))
         for workout_id, name in workouts:
-            self.workout_list.insert(tk.END, name)
-        self.selected_workout_id = None
-        self.clear_workout_details()
+            self.workout_list.insert("", tk.END, iid=str(workout_id), text="  " + name)
+
+        if select_id is not None and self.workout_list.exists(str(select_id)):
+            self.selected_workout_id = select_id
+            self.workout_list.selection_set(str(select_id))
+            self.show_workout_details()
+
     def refresh_exercises(self):
-        self.exercise_list.delete(0, tk.END)
-        exercises = self.db.fetchall("SELECT id, name FROM exercises ORDER BY name")
+        keep = self.selected_exercise_id
+        self.exercise_list.delete(*self.exercise_list.get_children())
+
+        query = self.exercise_search.get().strip()
+        exercises = self.db.fetchall(
+            "SELECT id,name FROM exercises WHERE name LIKE ? ORDER BY name",
+            (f"%{query}%",))
         for exercise_id, name in exercises:
-            self.exercise_list.insert(tk.END, name)
+            self.exercise_list.insert("", tk.END, iid=str(exercise_id), text="  " + name)
+
+        if keep is not None and self.exercise_list.exists(str(keep)):
+            self.exercise_list.selection_set(str(keep))
+        else:
+            self.selected_exercise_id = None
+
     def on_split_selected(self, event=None):
-        selection = self.split_list.curselection()
-        if not selection:
+        split_id = self.selected_id(self.split_list)
+        if split_id is None or split_id == self.selected_split_id:
             return
-        index = selection[0]
-        result = self.db.fetchone("""SELECT idFROM splitsORDER BY name""")
-        splits = self.db.fetchall("""SELECT id, nameFROM splitsORDER BY name""")
-        self.selected_split_id = splits[index][0]
+        self.selected_split_id = split_id
         self.refresh_workouts()
+
     def on_workout_selected(self, event=None):
-        selection = self.workout_list.curselection()
-        if not selection or self.selected_split_id is None:
+        workout_id = self.selected_id(self.workout_list)
+        if workout_id is None or workout_id == self.selected_workout_id:
             return
-        index = selection[0]
-        workouts = self.db.fetchall("""SELECT id, nameFROM workoutsWHERE split_id = ?ORDER BY name""",(self.selected_split_id,))
-        self.selected_workout_id = workouts[index][0]
+        self.selected_workout_id = workout_id
         self.show_workout_details()
+
     def on_exercise_selected(self, event=None):
-        selection = self.exercise_list.curselection()
-        if not selection:
-            return
-        index = selection[0]
-        exercises = self.db.fetchall("""SELECT id, nameFROM exercisesORDER BY name""")
-        self.selected_exercise_id = exercises[index][0]
+        exercise_id = self.selected_id(self.exercise_list)
+        if exercise_id is not None:
+            self.selected_exercise_id = exercise_id
+
     def add_split(self):
-        name = self.ask_for_text("Add Split","Split name:")
+        name = self.ask_for_text("Add Split", "Split name:")
         if not name:
             return
         try:
             split = Split(self.db, name)
             split.save()
-            self.refresh_splits()
+            self.refresh_splits(select_id=split.id)
         except Exception as e:
-            messagebox.showerror("Error",f"Could not add split:\n\n{e}")
+            messagebox.showerror("Error", f"Could not add split:\n\n{e}")
+
     def delete_split(self):
         if self.selected_split_id is None:
-            messagebox.showwarning("No Split","Select a split first.")
+            messagebox.showwarning("No Split", "Select a split first.")
             return
-        if not messagebox.askyesno("Delete Split","Are you sure you want to delete this split?"):
+        if not messagebox.askyesno("Delete Split",
+                                   "Are you sure you want to delete this split?"):
             return
         try:
-            split = Split(self.db,self.get_selected_split_name())
+            split = Split(self.db, self.get_selected_split_name())
             split.id = self.selected_split_id
             split.delete()
             self.refresh_splits()
         except Exception as e:
-            messagebox.showerror("Error",f"Could not delete split:\n\n{e}")
+            messagebox.showerror("Error", f"Could not delete split:\n\n{e}")
+
     def get_selected_split_name(self):
-        selection = self.split_list.curselection()
-        if not selection: return ""
-        return self.split_list.get(selection[0])
+        sel = self.split_list.selection()
+        return self.split_list.item(sel[0], "text").strip() if sel else ""
+
     def add_workout(self):
         if self.selected_split_id is None:
-            messagebox.showwarning("No Split","Select a split first.")
+            messagebox.showwarning("No Split", "Select a split first.")
             return
-        name = self.ask_for_text("Add Workout","Workout name:")
+        name = self.ask_for_text("Add Workout", "Workout name:")
         if not name:
             return
         try:
-            workout = Workout(self.db,self.selected_split_id,name)
+            workout = Workout(self.db, self.selected_split_id, name)
             workout.save()
-            self.refresh_workouts()
+            self.refresh_workouts(select_id=workout.id)
         except Exception as e:
-            messagebox.showerror("Error",f"Could not add workout:\n\n{e}")
+            messagebox.showerror("Error", f"Could not add workout:\n\n{e}")
+
     def delete_workout(self):
         if self.selected_workout_id is None:
-            messagebox.showwarning("No Workout","Select a workout first.")
+            messagebox.showwarning("No Workout", "Select a workout first.")
             return
-        if not messagebox.askyesno("Delete Workout","Are you sure you want to delete this workout?"):
+        if not messagebox.askyesno("Delete Workout",
+                                   "Are you sure you want to delete this workout?"):
             return
         try:
-            workout = Workout(self.db,self.selected_split_id,"")
+            workout = Workout(self.db, self.selected_split_id, "")
             workout.id = self.selected_workout_id
             workout.delete()
             self.refresh_workouts()
         except Exception as e:
-            messagebox.showerror("Error",f"Could not delete workout:\n\n{e}")
+            messagebox.showerror("Error", f"Could not delete workout:\n\n{e}")
+
     def add_exercise(self):
-        name = self.ask_for_text("Add Exercise","Exercise name:")
+        name = self.ask_for_text("Add Exercise", "Exercise name:")
         if not name:
             return
         try:
-            exercise = Exercise(self.db,name)
+            exercise = Exercise(self.db, name)
             exercise.save()
+            self.exercise_search.set("")
+            self.selected_exercise_id = exercise.id
             self.refresh_exercises()
+            if self.exercise_list.exists(str(exercise.id)):
+                self.exercise_list.see(str(exercise.id))
         except Exception as e:
-            messagebox.showerror("Error",f"Could not add exercise:\n\n{e}")
+            messagebox.showerror("Error", f"Could not add exercise:\n\n{e}")
+
     def delete_exercise(self):
         if self.selected_exercise_id is None:
-            messagebox.showwarning("No Exercise","Select an exercise first.")
+            messagebox.showwarning("No Exercise", "Select an exercise first.")
             return
-        if not messagebox.askyesno("Delete Exercise","Are you sure you want to delete this exercise?"):
+        if not messagebox.askyesno("Delete Exercise",
+                                   "Are you sure you want to delete this exercise?"):
             return
         try:
-            exercise = Exercise(self.db,"")
+            exercise = Exercise(self.db, "")
             exercise.id = self.selected_exercise_id
             exercise.delete()
             self.selected_exercise_id = None
             self.refresh_exercises()
-        except Exception as e:
-            messagebox.showerror("Error",f"Could not delete exercise:\n\n{e}")
-    def show_workout_details(self):
-        self.workout_exercises.delete(*self.workout_exercises.get_children())
-        if self.selected_workout_id is None:
-            return
-        workout = self.db.fetchone("""SELECT nameFROM workoutsWHERE id = ?""",(self.selected_workout_id,))
-        if not workout:
-            return
-        self.details_label.config(text=f"Workout: {workout[0]}")
-        exercises = self.db.fetchall("""SELECTworkout_exercises.id,exercises.name,workout_exercises.setsFROM workout_exercisesJOIN exercisesON exercises.id = workout_exercises.exercise_idWHERE workout_exercises.workout_id = ?ORDER BY workout_exercises.id""",(self.selected_workout_id,))
-        for row_id, name, sets in exercises:
-            self.workout_exercises.insert("",tk.END,iid=str(row_id),values=(name, sets))
-    def clear_workout_details(self):
-        self.details_label.config(text="Select a workout"); self.workout_exercises.delete(*self.workout_exercises.get_children())
-    def add_exercise_to_workout(self):
-        if self.selected_workout_id is None:
-            messagebox.showwarning("No Workout","Select a workout first.")
-            return
-        if self.selected_exercise_id is None:
-            messagebox.showwarning("No Exercise","Select an exercise first.")
-            return
-        sets = self.ask_for_number("Sets","How many sets?")
-        if sets is None:
-            return
-        try:
-            workout_exercise = WorkoutExercise(self.db,self.selected_workout_id,self.selected_exercise_id,sets)
-            workout_exercise.save()
             self.show_workout_details()
         except Exception as e:
-            messagebox.showerror("Error",f"Could not add exercise:\n\n{e}")
+            messagebox.showerror("Error", f"Could not delete exercise:\n\n{e}")
+
+    def show_workout_details(self):
+        self.workout_exercises.delete(*self.workout_exercises.get_children())
+
+        if self.selected_workout_id is None:
+            return
+
+        workout = self.db.fetchone("SELECT name FROM workouts WHERE id = ?",
+                                   (self.selected_workout_id,))
+        if not workout:
+            return
+
+        exercises = self.db.fetchall(
+            """SELECT workout_exercises.id,
+            exercises.name,
+            workout_exercises.sets,
+            workout_exercises.reps
+            FROM workout_exercises
+            JOIN exercises
+            ON exercises.id = workout_exercises.exercise_id
+            WHERE workout_exercises.workout_id = ?
+            ORDER BY workout_exercises.id""",
+            (self.selected_workout_id,))
+
+        total_sets = 0
+        for row_id, name, sets, reps in exercises:
+            self.workout_exercises.insert("", tk.END, iid=str(row_id),
+                                          values=(name, sets, reps if reps else "—"))
+            try:
+                total_sets += int(sets)
+            except (TypeError, ValueError):
+                pass
+
+        self.details_label.config(
+            text=f"{workout[0]}   •   {len(exercises)} exercises   •   {total_sets} sets")
+
+    def clear_workout_details(self):
+        self.details_label.config(text="Select a workout")
+        self.workout_exercises.delete(*self.workout_exercises.get_children())
+
+    def add_exercise_to_workout(self):
+        if self.selected_workout_id is None:
+            messagebox.showwarning("No Workout", "Select a workout first.")
+            return
+
+        choice = self.ask_exercise_and_sets()
+        if choice is None:
+            return
+        exercise_id, sets, reps = choice
+
+        try:
+            WorkoutExercise(self.db, self.selected_workout_id, exercise_id, sets, reps).save()
+            self.show_workout_details()
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not add exercise:\n\n{e}")
+
+    def ask_exercise_and_sets(self):
+        exercises = self.db.fetchall("SELECT id,name FROM exercises ORDER BY name")
+        if not exercises:
+            messagebox.showwarning("No Exercises", "Create an exercise first.")
+            return None
+
+        ids = [e[0] for e in exercises]
+        names = [e[1] for e in exercises]
+
+        win = self.make_modal("Add Exercise To Workout", 400, 290)
+        body = ttk.Frame(win, padding=20)
+        body.pack(fill="both", expand=True)
+
+        ttk.Label(body, text="Exercise").pack(anchor="w")
+        combo = ttk.Combobox(body, values=names, state="readonly")
+        combo.pack(fill="x", pady=(4, 12))
+        if self.selected_exercise_id in ids:
+            combo.current(ids.index(self.selected_exercise_id))
+        else:
+            combo.current(0)
+
+        numbers = ttk.Frame(body)
+        numbers.pack(fill="x", pady=(0, 14))
+
+        sets_box = ttk.Frame(numbers)
+        sets_box.pack(side="left", padx=(0, 24))
+        ttk.Label(sets_box, text="Sets").pack(anchor="w")
+        sets_var = tk.StringVar(value="3")
+        ttk.Spinbox(sets_box, from_=1, to=30, textvariable=sets_var, width=8).pack(pady=(4, 0))
+
+        reps_box = ttk.Frame(numbers)
+        reps_box.pack(side="left")
+        ttk.Label(reps_box, text="Reps per set").pack(anchor="w")
+        reps_var = tk.StringVar(value="10")
+        ttk.Spinbox(reps_box, from_=1, to=100, textvariable=reps_var, width=8).pack(pady=(4, 0))
+
+        result = {"value": None}
+
+        def submit(event=None):
+            try:
+                sets = int(sets_var.get())
+                reps = int(reps_var.get())
+                if sets <= 0 or reps <= 0:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror("Invalid Number", "Sets and reps must be positive whole numbers.",
+                                     parent=win)
+                return
+            result["value"] = (ids[combo.current()], sets, reps)
+            win.destroy()
+
+        btns = ttk.Frame(body)
+        btns.pack(fill="x")
+        ttk.Button(btns, text="Cancel", command=win.destroy).pack(side="right", padx=(6, 0))
+        ttk.Button(btns, text="Add", style="Accent.TButton", command=submit).pack(side="right")
+        win.bind("<Return>", submit)
+
+        self.root.wait_window(win)
+        return result["value"]
+
     def remove_exercise_from_workout(self):
         selected = self.workout_exercises.selection()
         if not selected:
-            messagebox.showwarning("Nothing Selected","Select an exercise from the workout.")
+            messagebox.showwarning("Nothing Selected",
+                                   "Select an exercise from the workout.")
             return
-        workout_exercise_id = int(selected[0])
-        if not messagebox.askyesno("Remove Exercise","Remove this exercise from the workout?"):
+        if not messagebox.askyesno("Remove Exercise",
+                                   "Remove this exercise from the workout?"):
             return
         try:
-            workout_exercise = WorkoutExercise(self.db,self.selected_workout_id,0,0)
-            workout_exercise.id = workout_exercise_id
+            workout_exercise = WorkoutExercise(self.db, self.selected_workout_id, 0, 0)
+            workout_exercise.id = int(selected[0])
             workout_exercise.delete()
             self.show_workout_details()
         except Exception as e:
-            messagebox.showerror("Error",f"Could not remove exercise:\n\n{e}")
+            messagebox.showerror("Error", f"Could not remove exercise:\n\n{e}")
+
     def start_workout(self):
         if self.selected_workout_id is None:
-            messagebox.showwarning("No Workout","Select a workout first.")
+            messagebox.showwarning("No Workout", "Select a workout first.")
             return
-        workout = self.db.fetchone("""SELECT nameFROM workoutsWHERE id = ?""",(self.selected_workout_id,))
+
+        workout = self.db.fetchone("SELECT name FROM workouts WHERE id = ?",
+                                   (self.selected_workout_id,))
         if not workout:
             return
-        workout_name = workout[0]
-        if not messagebox.askyesno("Start Workout",f"Start '{workout_name}'?"):
-            return
-        workout_log = WorkoutLog(self.db,self.selected_workout_id,date.today())
-        workout_log.save()
-        self.open_workout_window(workout_log.id,workout_name)
-    def open_workout_window(self, workout_log_id, workout_name):
+
+        self.open_workout_window(self.selected_workout_id, workout[0])
+
+    def get_last_sets(self, exercise_id):
+        try:
+            last = self.db.fetchone(
+                """SELECT exercise_logs.workout_log_id
+                FROM exercise_logs
+                JOIN workout_logs ON workout_logs.id = exercise_logs.workout_log_id
+                WHERE exercise_logs.exercise_id = ?
+                ORDER BY workout_logs.date DESC, workout_logs.id DESC
+                LIMIT 1""",
+                (exercise_id,))
+            if not last:
+                return []
+            return self.db.fetchall(
+                """SELECT weight, reps FROM exercise_logs
+                WHERE workout_log_id = ? AND exercise_id = ?
+                ORDER BY id""",
+                (last[0], exercise_id))
+        except Exception:
+            return []
+
+    @staticmethod
+    def fmt_weight(weight):
+        try:
+            return f"{float(weight):g}"
+        except (TypeError, ValueError):
+            return str(weight)
+
+    def open_workout_window(self, workout_id, workout_name):
         window = tk.Toplevel(self.root)
         window.title(f"Workout - {workout_name}")
-        window.geometry("700x500")
+        window.geometry("860x760")
+        window.minsize(700, 500)
+        window.configure(bg=BG)
         window.transient(self.root)
-        ttk.Label(window,text=workout_name,style="Title.TLabel").pack(pady=10)
-        ttk.Label(window,text=f"Date: {date.today()}").pack()
-        frame = ttk.Frame(window)
-        frame.pack(fill="both",expand=True,padx=15,pady=15)
-        exercises = self.db.fetchall("""SELECTexercises.id,exercises.name,workout_exercises.setsFROM workout_exercisesJOIN exercisesON exercises.id = workout_exercises.exercise_idWHERE workout_exercises.workout_id = ?ORDER BY workout_exercises.id""",(self.selected_workout_id,))
-        if not exercises:
-            ttk.Label(frame,text="This workout has no exercises yet.").pack()
-            return
-        entries = []
-        for exercise_id, exercise_name, sets in exercises:
-            exercise_frame = ttk.LabelFrame(frame,text=f"{exercise_name} ({sets} sets)",padding=8)
-            exercise_frame.pack(fill="x",pady=5)
-            ttk.Label(exercise_frame,text="Set").grid(row=0, column=0, padx=5)
-            ttk.Label(exercise_frame,text="Weight").grid(row=0, column=1, padx=5)
-            ttk.Label(exercise_frame,text="Reps").grid(row=0, column=2, padx=5)
-            exercise_entries = []
-            for set_number in range(1, sets + 1):
-                ttk.Label(exercise_frame,text=str(set_number)).grid(row=set_number,column=0,padx=5,pady=2)
-                weight_entry = ttk.Entry(exercise_frame,width=10)
-                weight_entry.grid(row=set_number,column=1,padx=5,pady=2)
-                reps_entry = ttk.Entry(exercise_frame,width=10)
-                reps_entry.grid(row=set_number,column=2,padx=5,pady=2)
-                exercise_entries.append((weight_entry, reps_entry))
-            entries.append((exercise_id, exercise_entries))
-        def save_workout():
+
+        started = time.time()
+
+        top = ttk.Frame(window, padding=(20, 14, 20, 6))
+        top.pack(fill="x")
+        left = ttk.Frame(top)
+        left.pack(side="left")
+        ttk.Label(left, text=workout_name, style="Title.TLabel").pack(anchor="w")
+        ttk.Label(left, text=date.today().strftime("%A, %d %B %Y"),
+                  style="Subtitle.TLabel").pack(anchor="w")
+        timer_label = tk.Label(top, text="00:00", bg="black", fg="#00ff00",
+                               font=("Courier New", 16, "bold"), padx=8, pady=2,
+                               relief="sunken", bd=2)
+        timer_label.pack(side="right")
+
+        def tick():
             try:
-                for exercise_id, exercise_entries in entries:
-                    for weight_entry, reps_entry in exercise_entries:
-                        weight_text = weight_entry.get().strip()
-                        reps_text = reps_entry.get().strip()
+                if not window.winfo_exists():
+                    return
+                elapsed = int(time.time() - started)
+                h, rem = divmod(elapsed, 3600)
+                m, s = divmod(rem, 60)
+                timer_label.config(text=f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}")
+                window.after(1000, tick)
+            except tk.TclError:
+                pass
+
+        tick()
+
+        exercises = self.db.fetchall(
+            """SELECT exercises.id,
+            exercises.name,
+            workout_exercises.sets,
+            workout_exercises.reps
+            FROM workout_exercises
+            JOIN exercises
+            ON exercises.id = workout_exercises.exercise_id
+            WHERE workout_exercises.workout_id = ?
+            ORDER BY workout_exercises.id""",
+            (workout_id,))
+
+        footer = ttk.Frame(window, padding=(20, 10, 20, 14))
+        footer.pack(side="bottom", fill="x")
+
+        if not exercises:
+            ttk.Label(window, text="No exercises have been added to this workout.",
+                      style="Subtitle.TLabel").pack(pady=40)
+            ttk.Button(footer, text="Close", command=window.destroy).pack(side="right")
+            return
+
+        body = ttk.Frame(window, padding=(14, 0))
+        body.pack(fill="both", expand=True)
+
+        canvas = tk.Canvas(body, bg=BG, highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(body, orient="vertical", command=canvas.yview)
+        inner = ttk.Frame(canvas)
+        win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        inner.bind("<Configure>",
+                   lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>",
+                    lambda e: canvas.itemconfigure(win_id, width=e.width))
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        def on_wheel(event):
+            if event.num == 4:
+                canvas.yview_scroll(-2, "units")
+            elif event.num == 5:
+                canvas.yview_scroll(2, "units")
+            else:
+                canvas.yview_scroll(int(-event.delta / 120) * 2, "units")
+
+        window.bind("<MouseWheel>", on_wheel)
+        window.bind("<Button-4>", on_wheel)
+        window.bind("<Button-5>", on_wheel)
+
+        def focus_next(event):
+            nxt = event.widget.tk_focusNext()
+            if nxt:
+                nxt.focus_set()
+                try:
+                    nxt.select_range(0, tk.END)
+                except (tk.TclError, AttributeError):
+                    pass
+            return "break"
+
+        cards = []
+
+        for exercise_id, exercise_name, sets, target_reps in exercises:
+            try:
+                sets = int(sets)
+            except (TypeError, ValueError):
+                sets = 0
+
+            last_sets = self.get_last_sets(exercise_id)
+
+            card = ttk.LabelFrame(inner, text=f" {exercise_name} ", padding=10)
+            card.pack(fill="x", padx=6, pady=6)
+
+            head = ttk.Frame(card, style="Card.TFrame")
+            head.pack(fill="x")
+            target = f"{sets} sets × {target_reps} reps" if target_reps else f"{sets} sets"
+            ttk.Label(head, text=target, style="Muted.TLabel").pack(side="left")
+
+            grid = ttk.Frame(card, style="Card.TFrame")
+            grid.pack(fill="x", pady=(10, 0))
+            grid.columnconfigure(1, weight=1)
+
+            for col, text in enumerate(("SET", "LAST TIME", "WEIGHT (KG)", "REPS", "")):
+                ttk.Label(grid, text=text, style="Header.TLabel").grid(
+                    row=0, column=col, padx=8, pady=(0, 6), sticky="w" if col == 1 else "")
+
+            data = {"id": exercise_id, "name": exercise_name, "rows": []}
+            cards.append(data)
+
+            def add_row(data=data, grid=grid, last_sets=last_sets):
+                index = len(data["rows"])
+                r = index + 1
+
+                set_label = ttk.Label(grid, text=str(r), style="Card.TLabel",
+                                      font=FONT_BOLD, width=4, anchor="center")
+                set_label.grid(row=r, column=0, padx=8, pady=4)
+
+                if index < len(last_sets):
+                    lw, lr = last_sets[index]
+                    prev_text = f"{self.fmt_weight(lw)} kg × {lr}"
+                else:
+                    lw = lr = None
+                    prev_text = "—"
+                prev_label = ttk.Label(grid, text=prev_text, style="Muted.TLabel")
+                prev_label.grid(row=r, column=1, padx=8, sticky="w")
+
+                weight_entry = ttk.Entry(grid, width=12, justify="center")
+                weight_entry.grid(row=r, column=2, padx=8, pady=4)
+                reps_entry = ttk.Entry(grid, width=10, justify="center")
+                reps_entry.grid(row=r, column=3, padx=8, pady=4)
+
+                for entry in (weight_entry, reps_entry):
+                    entry.bind("<Return>", focus_next)
+
+                fill_btn = None
+                if lw is not None:
+                    def fill(we=weight_entry, re=reps_entry, w=lw, rp=lr):
+                        we.delete(0, tk.END)
+                        we.insert(0, self.fmt_weight(w))
+                        re.delete(0, tk.END)
+                        re.insert(0, str(rp))
+                    fill_btn = ttk.Button(grid, text="↺ copy", style="Small.TButton",
+                                          command=fill, takefocus=False)
+                    fill_btn.grid(row=r, column=4, padx=8)
+
+                data["rows"].append({
+                    "weight": weight_entry,
+                    "reps": reps_entry,
+                    "widgets": [set_label, prev_label, weight_entry, reps_entry, fill_btn],
+                })
+
+            def remove_row(data=data):
+                if not data["rows"]:
+                    return
+                row = data["rows"].pop()
+                for w in row["widgets"]:
+                    if w is not None:
+                        w.destroy()
+
+            controls = ttk.Frame(card, style="Card.TFrame")
+            controls.pack(fill="x", pady=(8, 0))
+            ttk.Button(controls, text="+ Add Set", style="Small.TButton",
+                       command=add_row, takefocus=False).pack(side="left")
+            ttk.Button(controls, text="– Remove Set", style="Small.TButton",
+                       command=remove_row, takefocus=False).pack(side="left", padx=6)
+
+            for _ in range(max(sets, 1)):
+                add_row()
+
+        def has_input():
+            for c in cards:
+                for row in c["rows"]:
+                    if row["weight"].get().strip() or row["reps"].get().strip():
+                        return True
+            return False
+
+        def cancel():
+            if has_input() and not messagebox.askyesno(
+                    "Discard Workout", "Discard this workout without saving?",
+                    parent=window):
+                return
+            window.destroy()
+
+        def save_workout():
+            to_save = []
+            try:
+                for c in cards:
+                    for number, row in enumerate(c["rows"], start=1):
+                        weight_text = row["weight"].get().strip().replace(",", ".")
+                        reps_text = row["reps"].get().strip()
+
                         if not weight_text and not reps_text:
                             continue
-                        if not weight_text or not reps_text:
-                            raise ValueError("Every entered set needs both ""weight and reps.")
-                        weight = float(weight_text)
-                        reps = int(reps_text)
-                        log = ExerciseLog(self.db,workout_log_id,exercise_id,weight,reps)
-                        log.save()
-                messagebox.showinfo("Workout Complete","Workout saved successfully!")
+
+                        where = f"{c['name']} – set {number}: "
+                        if not weight_text:
+                            raise ValueError(where + "enter a weight (0 for bodyweight).")
+                        if not reps_text:
+                            raise ValueError(where + "enter reps.")
+
+                        try:
+                            weight = float(weight_text)
+                            reps = int(reps_text)
+                        except ValueError:
+                            raise ValueError(where + "weight must be a number and reps a whole number.")
+
+                        if weight < 0:
+                            raise ValueError(where + "weight cannot be negative.")
+                        if reps <= 0:
+                            raise ValueError(where + "reps must be greater than 0.")
+
+                        to_save.append((c["id"], weight, reps))
+
+                if not to_save:
+                    raise ValueError("Enter at least one set before finishing.")
+
+                workout_log = WorkoutLog(self.db, workout_id, date.today())
+                workout_log.save()
+
+                for exercise_id, weight, reps in to_save:
+                    ExerciseLog(self.db, workout_log.id, exercise_id, weight, reps).save()
+
+                messagebox.showinfo("Workout Complete",
+                                    f"Saved {len(to_save)} sets. Nice work!",
+                                    parent=window)
                 window.destroy()
+
             except ValueError as e:
-                messagebox.showerror("Invalid Input",str(e))
+                messagebox.showerror("Invalid Input", str(e), parent=window)
             except Exception as e:
-                messagebox.showerror("Error",f"Could not save workout:\n\n{e}")
-        ttk.Button(window,text="Finish Workout",command=save_workout).pack(pady=10)
+                messagebox.showerror("Error", f"Could not save workout:\n\n{e}",
+                                     parent=window)
+
+        ttk.Button(footer, text="Cancel", command=cancel).pack(side="left")
+        ttk.Button(footer, text="✔  FINISH WORKOUT", style="Success.TButton",
+                   command=save_workout).pack(side="right")
+
+        window.protocol("WM_DELETE_WINDOW", cancel)
+
     def show_history(self):
         if self.selected_workout_id is None:
-            messagebox.showwarning("No Workout","Select a workout first.")
+            messagebox.showwarning("No Workout", "Select a workout first.")
             return
+
         window = tk.Toplevel(self.root)
         window.title("Workout History")
-        window.geometry("700x500")
-        ttk.Label(window,text="Workout History",style="Title.TLabel").pack(pady=10)
-        logs_tree = ttk.Treeview(window,columns=("date",),show="headings")
-        logs_tree.heading("date",text="Date")
-        logs_tree.column("date",width=200)
-        logs_tree.pack(fill="both",expand=True,padx=15,pady=10)
-        logs = self.db.fetchall("""SELECT id, dateFROM workout_logsWHERE workout_id = ?ORDER BY date DESC""",(self.selected_workout_id,))
-        for log_id, log_date in logs:
-            logs_tree.insert("",tk.END,iid=str(log_id),values=(log_date,))
-        def show_log():
-            selected = logs_tree.selection()
-            if not selected:
-                return
-            log_id = int(selected[0])
-            self.show_log_details(log_id)
-        ttk.Button(window,text="View Workout",command=show_log).pack(pady=10)
+        window.geometry("560x480")
+        window.configure(bg=BG)
+        window.transient(self.root)
+
+        ttk.Label(window, text="Workout History", style="Title.TLabel").pack(
+            pady=(16, 8), padx=20, anchor="w")
+
+        wrap = ttk.Frame(window, padding=(20, 0))
+        wrap.pack(fill="both", expand=True)
+
+        logs_tree = ttk.Treeview(wrap, columns=("date", "sets"), show="headings",
+                                 selectmode="browse")
+        logs_tree.heading("date", text="Date", anchor="w")
+        logs_tree.heading("sets", text="Sets logged")
+        logs_tree.column("date", width=250, anchor="w")
+        logs_tree.column("sets", width=120, anchor="center")
+        scroll = ttk.Scrollbar(wrap, orient="vertical", command=logs_tree.yview)
+        logs_tree.configure(yscrollcommand=scroll.set)
+        logs_tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+
+        logs = self.db.fetchall(
+            """SELECT workout_logs.id, workout_logs.date,
+            COUNT(exercise_logs.workout_log_id)
+            FROM workout_logs
+            LEFT JOIN exercise_logs
+            ON exercise_logs.workout_log_id = workout_logs.id
+            WHERE workout_logs.workout_id = ?
+            GROUP BY workout_logs.id
+            ORDER BY workout_logs.date DESC, workout_logs.id DESC""",
+            (self.selected_workout_id,))
+
+        for log_id, log_date, count in logs:
+            logs_tree.insert("", tk.END, iid=str(log_id), values=(log_date, count))
+
+        def show_log(event=None):
+            log_id = self.selected_id(logs_tree)
+            if log_id is not None:
+                self.show_log_details(log_id)
+
+        logs_tree.bind("<Double-1>", show_log)
+
+        footer = ttk.Frame(window, padding=(20, 12))
+        footer.pack(fill="x")
+        ttk.Button(footer, text="Close", command=window.destroy).pack(side="right")
+        ttk.Button(footer, text="View Workout", style="Accent.TButton",
+                   command=show_log).pack(side="right", padx=6)
+
     def show_log_details(self, log_id):
         window = tk.Toplevel(self.root)
         window.title("Workout Details")
-        window.geometry("650x450")
-        tree = ttk.Treeview(window,columns=("exercise", "weight", "reps"),show="headings")
-        tree.heading("exercise",text="Exercise")
-        tree.heading("weight",text="Weight")
-        tree.heading("reps",text="Reps")
-        tree.column("exercise",width=300)
-        tree.column("weight",width=100,anchor="center")
-        tree.column("reps",width=100,anchor="center")
-        tree.pack(fill="both",expand=True,padx=15,pady=15)
-        logs = self.db.fetchall("""SELECTexercises.name,exercise_logs.weight,exercise_logs.repsFROM exercise_logsJOIN exercisesON exercises.id = exercise_logs.exercise_idWHERE exercise_logs.workout_log_id = ?""",(log_id,))
-        for exercise, weight, reps in logs:
-            tree.insert("",tk.END,values=(exercise, weight, reps))
-    def ask_for_text(self, title, prompt):
-        window = tk.Toplevel(self.root)
-        window.title(title)
-        window.geometry("350x130")
+        window.geometry("620x500")
+        window.configure(bg=BG)
         window.transient(self.root)
-        window.grab_set()
-        ttk.Label(window,text=prompt).pack(pady=(15, 5))
-        entry = ttk.Entry(window,width=35)
-        entry.pack()
+
+        logs = self.db.fetchall(
+            """SELECT exercises.name,
+            exercise_logs.weight,
+            exercise_logs.reps
+            FROM exercise_logs
+            JOIN exercises
+            ON exercises.id = exercise_logs.exercise_id
+            WHERE exercise_logs.workout_log_id = ?
+            ORDER BY exercise_logs.id""",
+            (log_id,))
+
+        volume = 0.0
+        for _, weight, reps in logs:
+            try:
+                volume += float(weight) * int(reps)
+            except (TypeError, ValueError):
+                pass
+
+        ttk.Label(window, text="Workout Details", style="Title.TLabel").pack(
+            pady=(16, 0), padx=20, anchor="w")
+        ttk.Label(window, text=f"{len(logs)} sets   •   {volume:,.0f} kg total volume",
+                  style="Subtitle.TLabel").pack(padx=20, anchor="w", pady=(0, 8))
+
+        wrap = ttk.Frame(window, padding=(20, 0, 20, 16))
+        wrap.pack(fill="both", expand=True)
+
+        tree = ttk.Treeview(wrap, columns=("exercise", "set", "weight", "reps"),
+                            show="headings")
+        for col, text, width, anchor in (
+                ("exercise", "Exercise", 260, "w"),
+                ("set", "Set", 60, "center"),
+                ("weight", "Weight (kg)", 100, "center"),
+                ("reps", "Reps", 80, "center")):
+            tree.heading(col, text=text, anchor=anchor)
+            tree.column(col, width=width, anchor=anchor)
+        scroll = ttk.Scrollbar(wrap, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+
+        counters = {}
+        for exercise, weight, reps in logs:
+            counters[exercise] = counters.get(exercise, 0) + 1
+            tree.insert("", tk.END,
+                        values=(exercise, counters[exercise], self.fmt_weight(weight), reps))
+
+    def ask_for_text(self, title, prompt):
+        win = self.make_modal(title, 380, 170)
+        body = ttk.Frame(win, padding=20)
+        body.pack(fill="both", expand=True)
+
+        ttk.Label(body, text=prompt).pack(anchor="w")
+        entry = ttk.Entry(body)
+        entry.pack(fill="x", pady=(6, 14))
+        entry.focus_set()
+
         result = {"value": None}
-        def submit():
+
+        def submit(event=None):
             value = entry.get().strip()
             if value:
                 result["value"] = value
-            window.destroy()
-        ttk.Button(window,text="OK",command=submit).pack(pady=10)
-        entry.focus()
-        window.bind("<Return>", lambda event: submit())
-        self.root.wait_window(window)
+            win.destroy()
+
+        btns = ttk.Frame(body)
+        btns.pack(fill="x")
+        ttk.Button(btns, text="Cancel", command=win.destroy).pack(side="right", padx=(6, 0))
+        ttk.Button(btns, text="OK", style="Accent.TButton", command=submit).pack(side="right")
+        win.bind("<Return>", submit)
+
+        self.root.wait_window(win)
         return result["value"]
+
     def ask_for_number(self, title, prompt):
-        window = tk.Toplevel(self.root)
-        window.title(title)
-        window.geometry("350x130")
-        window.transient(self.root)
-        window.grab_set()
-        ttk.Label(window,text=prompt).pack(pady=(15, 5))
-        entry = ttk.Entry(window,width=15)
-        entry.pack()
+        win = self.make_modal(title, 380, 170)
+        body = ttk.Frame(win, padding=20)
+        body.pack(fill="both", expand=True)
+
+        ttk.Label(body, text=prompt).pack(anchor="w")
+        entry = ttk.Entry(body, width=15)
+        entry.pack(anchor="w", pady=(6, 14))
+        entry.focus_set()
+
         result = {"value": None}
-        def submit():
+
+        def submit(event=None):
             try:
                 value = int(entry.get())
                 if value <= 0:
                     raise ValueError
-                result["value"] = value
-                window.destroy()
             except ValueError:
-                messagebox.showerror("Invalid Number","Enter a positive whole number.")
-        ttk.Button(window,text="OK",command=submit).pack(pady=10)
-        entry.focus()
-        window.bind("<Return>", lambda event: submit())
-        self.root.wait_window(window)
+                messagebox.showerror("Invalid Number", "Enter a positive whole number.",
+                                     parent=win)
+                return
+            result["value"] = value
+            win.destroy()
+
+        btns = ttk.Frame(body)
+        btns.pack(fill="x")
+        ttk.Button(btns, text="Cancel", command=win.destroy).pack(side="right", padx=(6, 0))
+        ttk.Button(btns, text="OK", style="Accent.TButton", command=submit).pack(side="right")
+        win.bind("<Return>", submit)
+
+        self.root.wait_window(win)
         return result["value"]
+
+
 if __name__ == "__main__":
     root = tk.Tk()
     app = WorkoutManagerGUI(root)

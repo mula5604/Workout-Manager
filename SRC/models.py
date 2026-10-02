@@ -68,7 +68,7 @@ class Workout:
         return workout
 
     def get_exercises(self):
-        return self.db.execute("SELECT id, exercise_id, sets FROM workout_exercises WHERE workout_id = ?", (self.id,)).fetchall()
+        return self.db.execute("SELECT id, exercise_id, sets, reps FROM workout_exercises WHERE workout_id = ?", (self.id,)).fetchall()
 
     def get_logs(self):
         return self.db.execute("SELECT id, date FROM workout_logs WHERE workout_id = ?", (self.id,)).fetchall()
@@ -77,20 +77,21 @@ class Workout:
         self.db.delete("DELETE FROM workouts WHERE id = ?", (self.id,))
 
 class WorkoutExercise:
-    def __init__(self, db, workout_id, exercise_id, sets):
+    def __init__(self, db, workout_id, exercise_id, sets, reps=None):
         self.db = db
         self.workout_id = workout_id
         self.exercise_id = exercise_id
         self.sets = sets
+        self.reps = reps
         self.id = None
 
     def save(self):
-        self.id = self.db.insert("INSERT INTO workout_exercises (workout_id, exercise_id, sets) VALUES (?, ?, ?)", (self.workout_id, self.exercise_id, self.sets))
+        self.id = self.db.insert("INSERT INTO workout_exercises (workout_id, exercise_id, sets, reps) VALUES (?, ?, ?, ?)", (self.workout_id, self.exercise_id, self.sets, self.reps))
         return self.id
 
     @classmethod
     def get_by_workout(cls, db, workout_id):
-        return db.execute("SELECT id, exercise_id, sets FROM workout_exercises WHERE workout_id = ?", (workout_id,)).fetchall()
+        return db.execute("SELECT id, exercise_id, sets, reps FROM workout_exercises WHERE workout_id = ?", (workout_id,)).fetchall()
 
     def delete(self):
         self.db.delete("DELETE FROM workout_exercises WHERE id = ?", (self.id,))
@@ -115,7 +116,7 @@ class WorkoutLog:
 
     def delete(self):
         self.db.delete("DELETE FROM workout_logs WHERE id = ?", (self.id,))
-        
+
 class ExerciseLog:
     def __init__(self, db, workout_log_id, exercise_id, weight, reps):
         self.db = db
